@@ -7,7 +7,12 @@ add_executable(Tester Tester.cpp)
 include_directories(${CURL_INCLUDE_DIR})
 target_link_libraries(Tester CURL::libcurl)
 
-add_executable(DistributedTaskManager DistributedTaskManager.cpp)
+add_executable(DistributedTaskManager
+    DistributedTaskManager.cpp
+    MockTask.cpp 
+    Utils.cpp 
+)
+
 target_include_directories(DistributedTaskManager PRIVATE include)
 
 find_package(Crow REQUIRED)

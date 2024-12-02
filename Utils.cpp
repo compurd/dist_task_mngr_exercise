@@ -8,7 +8,10 @@
 
 #include "Utils.hpp"
 
+namespace utils {
+
 std::string generateUUID() {
     boost::uuids::uuid id = boost::uuids::random_generator()();
     return boost::uuids::to_string(id);
+}
 }

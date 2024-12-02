@@ -38,7 +38,7 @@ protected:
 
 class CreateTaskCommand : public Command {
 public:
-    CreateTaskCommand(TaskManager& manager);
+    CreateTaskCommand(TaskManager& manager): Command(manager){};
     void execute() override {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -92,7 +92,7 @@ private:
 
 class TaskManager {
 public:
-    TaskManager();
+    TaskManager(){};
     std::string executeCreateTask();
 private:
     std::unordered_map<std::string, std::shared_ptr<MockTask>> m_tasks;

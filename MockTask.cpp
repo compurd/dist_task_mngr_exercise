@@ -2,8 +2,6 @@
     A mock task class to help distributed task manager implementation
 */
 
-#pragma once
-
 #include "MockTask.hpp"
 #include "Utils.hpp"
 
