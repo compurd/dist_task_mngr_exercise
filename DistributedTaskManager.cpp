@@ -43,6 +43,7 @@ public:
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             std::cout << "CreateTaskCommand executed" << std::endl;
+            m_executed = true;
         }
 
         m_condition.notify_one();
@@ -72,16 +73,14 @@ public:
             m_condition.wait(lock, [this] {return !m_commands.empty();});
             
             std::cout << "New Command notification received" << std::endl;
-
-            {
-                std::lock_guard<std::mutex> lock(m_mutex);
-
-                while(!m_commands.empty()){
-                    auto cmd = m_commands.front();
-                    cmd->execute();
-                    m_commands.pop();
-                }
+            
+            while(!m_commands.empty()){
+                auto cmd = m_commands.front();
+                cmd->execute();
+                m_commands.pop();
             }
+
+            lock.unlock();
         }
     }
 private:
