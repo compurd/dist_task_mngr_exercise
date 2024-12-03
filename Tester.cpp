@@ -35,16 +35,22 @@ protected:
     json m_response;
 };
 
-class HelloWorldTest : public Test {
+class SimplePostTest : public Test {
 public:
-    HelloWorldTest(const std::string& response) : Test(response) {
-        m_name = "HelloWorld";
+    SimplePostTest(const std::string& response, const std::string& description, int duration) 
+    : Test(response), m_description(description), m_duration(duration) {
+        m_name = "SimplePost";
     }
  
 private:
     bool evaluate() const override {
-        return m_response["message"] == "Hello World!";
-    } 
+        return !m_response["id"].empty()
+                && m_response["description"] == m_description
+                && m_response["duration"] == m_duration
+                && m_response["status"] == "Waiting" ;
+    }
+    std::string m_description;
+    int m_duration;
 };
 
 class Client  {
@@ -78,7 +84,6 @@ public:
         curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(handle, CURLOPT_WRITEDATA, &m_response);
         curl_easy_perform(handle);
-        std::cout << "Response is: " + m_response << std::endl;
         curl_easy_cleanup(handle);
         return m_response;
     }
@@ -92,8 +97,12 @@ private:
 
 int main() {
     Client cl;
-    HelloWorldTest hw(cl.makeCreateTaskRequest("new desc", 55));
-    hw.printResult();
+    
+    std::string description = "simple post";
+    int duration = 55;
+    SimplePostTest t1(cl.makeCreateTaskRequest(description, duration), description, duration);
+    t1.printResult();
+
     //std::this_thread::sleep_for(std::chrono::seconds(3));
     return 0;
 }

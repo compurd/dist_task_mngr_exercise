@@ -7,6 +7,7 @@ Implements a multithreaded mock task manager with a RESTful API
 #include <condition_variable>
 #include <iostream>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 #include <queue>
 #include <thread>
@@ -19,7 +20,31 @@ Implements a multithreaded mock task manager with a RESTful API
 
 using json = nlohmann::json;
 
-class TaskManager;
+class TaskManager {
+public:
+    TaskManager(){};
+
+    std::string executeCreateTask(const std::string& description, int duration){
+        std::cout << "Entered TaskManager executeCreateTask" << std::endl;
+        auto newTask = std::make_shared<MockTask>(description, duration);
+        auto id = newTask->getId();
+        m_tasks[id] = newTask;
+        return id;
+    }
+
+    MockTaskView viewTask(const std::string& id){
+        auto it = m_tasks.find(id);
+        if(it == m_tasks.end()){
+            return MockTaskView();
+
+        }
+        return it->second->getView();
+    }
+private:
+    std::unordered_map<std::string, std::shared_ptr<MockTask>> m_tasks;
+    std::condition_variable m_condition;
+    std::mutex m_mutex;
+};
 
 class Command {
 public:
@@ -41,22 +66,40 @@ protected:
 
 class CreateTaskCommand : public Command {
 public:
-    CreateTaskCommand(TaskManager& manager): Command(manager){};
+    CreateTaskCommand(TaskManager& manager, const std::string& description, int duration)
+    : Command(manager), m_description(description), m_duration(duration){};
     void execute() override {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            std::cout << "CreateTaskCommand executed" << std::endl;
+            
+            m_id = m_manager.executeCreateTask(m_description, m_duration);
+            auto m_taskView = m_manager.viewTask(m_id);
+            
+            if(m_taskView.id.empty()){
+                std::cout << "Error: Unable to create the task" << std::endl;
+            }
+
+            std::cout << "CreateTaskCommand execution complete" << std::endl;
             m_executed = true;
         }
 
         m_condition.notify_one();
     }
 
-    void setId (const std::string& id) {
-
+    MockTaskView getTaskView() const {
+        return m_manager.viewTask(m_id);
     }
+
+    std::string getId() const {
+        return m_id;
+    }
+
 private:
     std::string m_id;
+    std::string m_description;
+    int m_duration;
+    MockTaskView m_taskView;
+   
 };
 
 class Controller {
@@ -92,23 +135,6 @@ private:
     std::mutex m_mutex;
 };
 
-class TaskManager {
-public:
-    TaskManager(){};
-    std::string executeCreateTask();
-private:
-    std::unordered_map<std::string, std::shared_ptr<MockTask>> m_tasks;
-    std::condition_variable m_condition;
-    std::mutex m_mutex;
-};
-
-std::string TaskManager::executeCreateTask() {
-    auto newTask = std::make_shared<MockTask>("Mock description", 10);
-    auto id = newTask->getId();
-    m_tasks[id] = newTask;
-    return id;
-}
-
 int main() {
 
     crow::SimpleApp app;
@@ -120,25 +146,37 @@ int main() {
     ([&taskManager, &controller](const crow::request& req ){
         std::cout << "Request received" << std::endl;
 
-        json reqData =  json::parse(req.body);
-        
         std::string description;
         int duration;
-
+        json reqData =  json::parse(req.body);
         reqData["description"].get_to(description);
         reqData["duration"].get_to(duration);
 
         std::cout << "description: " + description  << std::endl;
         std::cout << "duration: " + std::to_string(duration) << std::endl;
 
-        std::shared_ptr<Command> createTaskCommand = std::make_shared<CreateTaskCommand>(taskManager);
-        controller.addCommand(createTaskCommand);
-        createTaskCommand->waitToBeExecuted();
-
+        std::shared_ptr<Command> command = 
+            std::make_shared<CreateTaskCommand>(taskManager, description, duration);
+        
+        controller.addCommand(command);
+        command->waitToBeExecuted();
         std::cout << "CreateTaskCommand completion notification received" << std::endl;
 
+        auto createTaskCommand = std::dynamic_pointer_cast<CreateTaskCommand>(command);
+
+        auto taskView = createTaskCommand->getTaskView();
+
         crow::json::wvalue response;
-        response["message"] = "Hello World!";
+
+        if(taskView.id.empty()) {
+             response["error"] = "Couldn't create a new task";
+        } else {
+            response["id"] = taskView.id;
+            response["status"] = taskView.status;
+            response["description"] = taskView.description;
+            response["duration"] = taskView.duration;
+        }
+
         return response;
     });
 
