@@ -5,16 +5,19 @@ Implements a multithreaded mock task manager with a RESTful API
 */
 
 #include <condition_variable>
-#include <crow.h>
 #include <iostream>
-
 #include <mutex>
 #include <unordered_map>
 #include <queue>
 #include <thread>
 
+#include <crow.h>
+#include "nlohmann/json.hpp"
+
 #include "MockTask.hpp"
 #include "Utils.hpp"
+
+using json = nlohmann::json;
 
 class TaskManager;
 
@@ -112,9 +115,21 @@ int main() {
     TaskManager taskManager;
     Controller controller;
 
-    CROW_ROUTE(app, "/helloworld") 
-    ([&taskManager, &controller]{
+    CROW_ROUTE(app, "/taches")
+    .methods("POST"_method)
+    ([&taskManager, &controller](const crow::request& req ){
         std::cout << "Request received" << std::endl;
+
+        json reqData =  json::parse(req.body);
+        
+        std::string description;
+        int duration;
+
+        reqData["description"].get_to(description);
+        reqData["duration"].get_to(duration);
+
+        std::cout << "description: " + description  << std::endl;
+        std::cout << "duration: " + std::to_string(duration) << std::endl;
 
         std::shared_ptr<Command> createTaskCommand = std::make_shared<CreateTaskCommand>(taskManager);
         controller.addCommand(createTaskCommand);
