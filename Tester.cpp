@@ -99,9 +99,14 @@ int main() {
     Client cl;
     
     std::string description = "simple post";
-    int duration = 55;
+    int duration = 1000;
     SimplePostTest t1(cl.makeCreateTaskRequest(description, duration), description, duration);
     t1.printResult();
+
+    for(int i = 0; i < 10; ++i) {
+        description = "Task " + std::to_string(i);
+        cl.makeCreateTaskRequest(description, duration);
+    }
 
     //std::this_thread::sleep_for(std::chrono::seconds(3));
     return 0;

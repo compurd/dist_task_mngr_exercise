@@ -5,12 +5,14 @@ Implements a multithreaded mock task manager with a RESTful API
 */
 
 #include <condition_variable>
+#include <chrono>
 #include <iostream>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
 #include <queue>
 #include <thread>
+#include <vector>
 
 #include <crow.h>
 #include "nlohmann/json.hpp"
@@ -22,13 +24,39 @@ using json = nlohmann::json;
 
 class TaskManager {
 public:
-    TaskManager(){};
+    TaskManager(size_t nTasks){
+        for(size_t i = 0; i < nTasks; ++i) {
+            m_workers.emplace_back([this](){
+                for(;;) {
+                    std::unique_lock<std::mutex> lock(m_mutex);
+                    m_condition.wait(lock, [this](){ return !m_waitingTasks.empty();});
+                    auto task = m_waitingTasks.front();
+                    m_waitingTasks.pop();
+                    lock.unlock();
+
+                    if(task->isCancelled()){
+                        continue;
+                    }
+
+                    task->compute();
+                }
+                
+            });
+        }
+    };
 
     std::string executeCreateTask(const std::string& description, int duration){
-        std::cout << "Entered TaskManager executeCreateTask" << std::endl;
+        
         auto newTask = std::make_shared<MockTask>(description, duration);
         auto id = newTask->getId();
         m_tasks[id] = newTask;
+        
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_waitingTasks.push(newTask);
+        }
+        m_condition.notify_one();
+
         return id;
     }
 
@@ -42,6 +70,8 @@ public:
     }
 private:
     std::unordered_map<std::string, std::shared_ptr<MockTask>> m_tasks;
+    std::queue<std::shared_ptr<MockTask>> m_waitingTasks;
+    std::vector<std::thread> m_workers;
     std::condition_variable m_condition;
     std::mutex m_mutex;
 };
@@ -79,7 +109,7 @@ public:
                 std::cout << "Error: Unable to create the task" << std::endl;
             }
 
-            std::cout << "CreateTaskCommand execution complete" << std::endl;
+            //std::cout << "CreateTaskCommand execution complete" << std::endl;
             m_executed = true;
         }
 
@@ -108,7 +138,7 @@ public:
         {
             std::lock_guard<std::mutex> lg(m_mutex);
             m_commands.push(command);
-            std::cout << "Command added" << std::endl;
+            //std::cout << "Command added" << std::endl;
         } 
         m_condition.notify_one();
     }
@@ -118,7 +148,7 @@ public:
             std::unique_lock lock(m_mutex);
             m_condition.wait(lock, [this] {return !m_commands.empty();});
             
-            std::cout << "New Command notification received" << std::endl;
+           // std::cout << "New Command notification received" << std::endl;
             
             while(!m_commands.empty()){
                 auto cmd = m_commands.front();
@@ -138,13 +168,13 @@ private:
 int main() {
 
     crow::SimpleApp app;
-    TaskManager taskManager;
+    TaskManager taskManager(2);
     Controller controller;
 
     CROW_ROUTE(app, "/taches")
     .methods("POST"_method)
     ([&taskManager, &controller](const crow::request& req ){
-        std::cout << "Request received" << std::endl;
+        //std::cout << "Request received" << std::endl;
 
         std::string description;
         int duration;
@@ -152,15 +182,12 @@ int main() {
         reqData["description"].get_to(description);
         reqData["duration"].get_to(duration);
 
-        std::cout << "description: " + description  << std::endl;
-        std::cout << "duration: " + std::to_string(duration) << std::endl;
-
         std::shared_ptr<Command> command = 
             std::make_shared<CreateTaskCommand>(taskManager, description, duration);
         
         controller.addCommand(command);
         command->waitToBeExecuted();
-        std::cout << "CreateTaskCommand completion notification received" << std::endl;
+        // std::cout << "CreateTaskCommand completion notification received" << std::endl;
 
         auto createTaskCommand = std::dynamic_pointer_cast<CreateTaskCommand>(command);
 
@@ -180,10 +207,10 @@ int main() {
         return response;
     });
 
+    
+
     auto var = app.port(3000).multithreaded().run_async();
 
-
     controller.run();
-
     return 0;
 }
