@@ -47,7 +47,7 @@ private:
         return !m_response["id"].empty()
                 && m_response["description"] == m_description
                 && m_response["duration"] == m_duration
-                && m_response["status"] == "Waiting" ;
+                && (m_response["status"] == "Waiting" || m_response["status"] == "Running");
     }
     std::string m_description;
     int m_duration;
@@ -87,6 +87,21 @@ public:
         curl_easy_cleanup(handle);
         return m_response;
     }
+
+    std::string makeGetTaskRequest(const std::string& id) {
+        m_response.clear();
+        CURL* handle = curl_easy_init();
+        std::string url = "http://localhost:3000/taches";
+        url.append("/" + id);
+        curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(handle, CURLOPT_WRITEDATA, &m_response);
+        curl_easy_perform(handle);
+        std::cout << "Response is " << m_response << std::endl;
+        curl_easy_cleanup(handle);
+        return m_response;
+    }
+
     ~Client(){
         curl_global_cleanup();
     }
@@ -100,15 +115,40 @@ int main() {
     
     std::string description = "simple post";
     int duration = 1000;
-    SimplePostTest t1(cl.makeCreateTaskRequest(description, duration), description, duration);
+    std::string response = cl.makeCreateTaskRequest(description, duration);
+    SimplePostTest t1(response, description, duration);
     t1.printResult();
 
-    for(int i = 0; i < 10; ++i) {
-        description = "Task " + std::to_string(i);
-        cl.makeCreateTaskRequest(description, duration);
-    }
+    auto responseJson = json::parse(response);
+    auto id = responseJson["id"];
 
-    //std::this_thread::sleep_for(std::chrono::seconds(3));
+    std::cout << "[TEST] Get existing task..." << std::endl;
+    
+    auto getTaskResponseJson = json::parse(cl.makeGetTaskRequest(id));
+    std::cout << (getTaskResponseJson["id"] == id ? "PASS" : "FAIL") << std::endl;
+
+    std::cout << "Waiting for task to start running..." << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    std::cout << "[TEST] Task started running..." << std::endl;
+    getTaskResponseJson = json::parse(cl.makeGetTaskRequest(id));
+    std::cout << (getTaskResponseJson["status"] == "Running" ? "PASS" : "FAIL") << std::endl;
+
+    std::cout << "Waiting for task to finish..." << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+    getTaskResponseJson = json::parse(cl.makeGetTaskRequest(id));
+    std::cout << (getTaskResponseJson["status"] == "Finished" ? "PASS" : "FAIL") << std::endl;
+
+
+    // for(int i = 0; i < 10; ++i) {
+    //     description = "Task " + std::to_string(i);
+    //     cl.makeCreateTaskRequest(description, duration);
+    // }
+
+    
+
+    
     return 0;
 }
 

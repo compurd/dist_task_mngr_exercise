@@ -109,7 +109,7 @@ public:
                 std::cout << "Error: Unable to create the task" << std::endl;
             }
 
-            //std::cout << "CreateTaskCommand execution complete" << std::endl;
+            std::cout << "CreateTaskCommand execution complete" << std::endl;
             m_executed = true;
         }
 
@@ -132,13 +132,40 @@ private:
    
 };
 
+class GetTaskCommand : public Command {
+public:    
+    GetTaskCommand(TaskManager& manager, std::string id) : Command(manager), m_id(id) {
+
+    }
+    void execute() override {
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_view = m_manager.viewTask(m_id);
+            m_executed = true;
+            std::cout << "GetTaskCommand executed" << std::endl;
+        }
+        m_condition.notify_one();
+    }
+
+    bool noTaskFound() const {
+        return m_view.id.empty();
+    }
+
+    MockTaskView getTaskView() const {
+        return m_view;
+    }
+private:
+    std::string m_id;
+    MockTaskView m_view;
+};
+
 class Controller {
 public:
     void addCommand(std::shared_ptr<Command> command) {
         {
             std::lock_guard<std::mutex> lg(m_mutex);
             m_commands.push(command);
-            //std::cout << "Command added" << std::endl;
+            std::cout << "Command added" << std::endl;
         } 
         m_condition.notify_one();
     }
@@ -148,7 +175,7 @@ public:
             std::unique_lock lock(m_mutex);
             m_condition.wait(lock, [this] {return !m_commands.empty();});
             
-           // std::cout << "New Command notification received" << std::endl;
+           std::cout << "New Command notification received" << std::endl;
             
             while(!m_commands.empty()){
                 auto cmd = m_commands.front();
@@ -165,6 +192,15 @@ private:
     std::mutex m_mutex;
 };
 
+crow::json::wvalue toCrowJson(MockTaskView taskView) {
+    crow::json::wvalue response;
+    response["id"] = taskView.id;
+    response["status"] = taskView.status;
+    response["description"] = taskView.description;
+    response["duration"] = taskView.duration;
+    return response;
+}
+
 int main() {
 
     crow::SimpleApp app;
@@ -174,7 +210,7 @@ int main() {
     CROW_ROUTE(app, "/taches")
     .methods("POST"_method)
     ([&taskManager, &controller](const crow::request& req ){
-        //std::cout << "Request received" << std::endl;
+        std::cout << "Request received" << std::endl;
 
         std::string description;
         int duration;
@@ -184,30 +220,39 @@ int main() {
 
         std::shared_ptr<Command> command = 
             std::make_shared<CreateTaskCommand>(taskManager, description, duration);
-        
         controller.addCommand(command);
         command->waitToBeExecuted();
-        // std::cout << "CreateTaskCommand completion notification received" << std::endl;
+        std::cout << "CreateTaskCommand completion notification received" << std::endl;
 
         auto createTaskCommand = std::dynamic_pointer_cast<CreateTaskCommand>(command);
-
         auto taskView = createTaskCommand->getTaskView();
 
         crow::json::wvalue response;
-
         if(taskView.id.empty()) {
-             response["error"] = "Couldn't create a new task";
+            response["error"] = "Couldn't create a new task";
         } else {
-            response["id"] = taskView.id;
-            response["status"] = taskView.status;
-            response["description"] = taskView.description;
-            response["duration"] = taskView.duration;
+            response = toCrowJson(taskView);
         }
 
         return response;
     });
 
-    
+
+    CROW_ROUTE(app,"/taches/<string>")
+    ([&taskManager, &controller](std::string id){
+        std::shared_ptr<Command> command = std::make_shared<GetTaskCommand>(taskManager, id);
+        controller.addCommand(command);
+        command->waitToBeExecuted();
+        std::cout << "GetTaskCommand completion notification received" << std::endl;
+
+        auto getTaskCommand = std::dynamic_pointer_cast<GetTaskCommand>(command);
+        if(getTaskCommand->noTaskFound()) {
+            crow::json::wvalue response;
+            response["error"] = "Task not found";
+            return response;
+        }
+        return toCrowJson(getTaskCommand->getTaskView());
+     });
 
     auto var = app.port(3000).multithreaded().run_async();
 
