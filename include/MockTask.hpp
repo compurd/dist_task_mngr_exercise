@@ -20,7 +20,7 @@ public:
         Running,
         Finished,
         Cancelled,
-        Aborted
+        Failed
     };
 
     MockTask(const std::string& description, int sleepTime);

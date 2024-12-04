@@ -102,6 +102,21 @@ public:
         return m_response;
     }
 
+    std::string makeCancelRequest(const std::string& id) {
+        m_response.clear();
+        CURL* handle = curl_easy_init();
+        curl_easy_setopt(handle, CURLOPT_CUSTOMREQUEST, "DELETE");
+        std::string url = "http://localhost:3000/taches";
+        url.append("/" + id);
+        curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(handle, CURLOPT_WRITEDATA, &m_response);
+        curl_easy_perform(handle);
+        std::cout << "Response is " << m_response << std::endl;
+        curl_easy_cleanup(handle);
+        return m_response;
+    }
+
     ~Client(){
         curl_global_cleanup();
     }
@@ -110,46 +125,79 @@ private:
     std::string m_response;
 };
 
+void log(const std::string& msg) {
+    std::cout << msg << std::endl;
+}
+
+void wait(int msCount) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(msCount));
+}
+
 int main() {
-    Client cl;
-    
-    std::string description = "simple post";
-    int duration = 1000;
-    std::string response = cl.makeCreateTaskRequest(description, duration);
-    SimplePostTest t1(response, description, duration);
-    t1.printResult();
+Client cl;
 
-    auto responseJson = json::parse(response);
-    auto id = responseJson["id"];
+std::string description = "simple post";
+int duration = 1000;
+std::string response = cl.makeCreateTaskRequest(description, duration);
+SimplePostTest t1(response, description, duration);
+t1.printResult();
 
-    std::cout << "[TEST] Get existing task..." << std::endl;
-    
-    auto getTaskResponseJson = json::parse(cl.makeGetTaskRequest(id));
-    std::cout << (getTaskResponseJson["id"] == id ? "PASS" : "FAIL") << std::endl;
+auto responseJson = json::parse(response);
+auto id = responseJson["id"];
 
-    std::cout << "Waiting for task to start running..." << std::endl;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+log("[TEST] Should be able to get existing task:");
+auto getTaskResponseJson = json::parse(cl.makeGetTaskRequest(id));
+log(getTaskResponseJson["id"] == id ? "PASS" : "FAIL");
+log("");
 
-    std::cout << "[TEST] Task started running..." << std::endl;
-    getTaskResponseJson = json::parse(cl.makeGetTaskRequest(id));
-    std::cout << (getTaskResponseJson["status"] == "Running" ? "PASS" : "FAIL") << std::endl;
+log("Waiting for task to start running...");
+wait(100);
 
-    std::cout << "Waiting for task to finish..." << std::endl;
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+log("[TEST] Task should have started running:");
+getTaskResponseJson = json::parse(cl.makeGetTaskRequest(id));
+log(getTaskResponseJson["status"] == "Running" ? "PASS" : "FAIL");
+log("");
 
-    getTaskResponseJson = json::parse(cl.makeGetTaskRequest(id));
-    std::cout << (getTaskResponseJson["status"] == "Finished" ? "PASS" : "FAIL") << std::endl;
+log("Waiting for task to finish...");
+wait(1000);
 
+log("[TEST] Task should have finished:");
+getTaskResponseJson = json::parse(cl.makeGetTaskRequest(id));
+log(getTaskResponseJson["status"] == "Finished" ? "PASS" : "FAIL");
+log("");
 
-    // for(int i = 0; i < 10; ++i) {
-    //     description = "Task " + std::to_string(i);
-    //     cl.makeCreateTaskRequest(description, duration);
-    // }
+// Test canceling a running task
 
-    
+log("Creating a new task to test DELETE endpoint...");
+response = cl.makeCreateTaskRequest(description, duration);
 
-    
-    return 0;
+log("Waiting task to start running...");
+wait(100);
+
+log("Sending cancel request...");
+id = json::parse(response)["id"];
+getTaskResponseJson = json::parse(cl.makeCancelRequest(id));
+
+log("[TEST] Should receive task cancelled response:");
+log(getTaskResponseJson["message"] == "Task canceled" ? "PASS" : "FAIL");
+log("");
+
+// Test canceling a non existant task
+
+log("Trying to cancel non-existent task...");
+id = "non-existent-id";
+getTaskResponseJson = json::parse(cl.makeCancelRequest(id));
+
+log("[TEST] Should receive task not found error:");
+log(getTaskResponseJson["error"] == "Task not found" ? "PASS" : "FAIL");
+log("");
+
+// for(int i = 0; i < 10; ++i) {
+//     description = "Task " + std::to_string(i);
+//     cl.makeCreateTaskRequest(description, duration);
+// }
+
+return 0;
 }
 
 

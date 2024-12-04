@@ -68,6 +68,16 @@ public:
         }
         return it->second->getView();
     }
+
+    bool cancelTask(const std::string& id){
+        auto it = m_tasks.find(id);
+        if(it == m_tasks.end()){
+            return false;
+        }
+
+        it->second->abort();
+        return true;
+    }
 private:
     std::unordered_map<std::string, std::shared_ptr<MockTask>> m_tasks;
     std::queue<std::shared_ptr<MockTask>> m_waitingTasks;
@@ -134,9 +144,7 @@ private:
 
 class GetTaskCommand : public Command {
 public:    
-    GetTaskCommand(TaskManager& manager, std::string id) : Command(manager), m_id(id) {
-
-    }
+    GetTaskCommand(TaskManager& manager, std::string id) : Command(manager), m_id(id) {}
     void execute() override {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -157,6 +165,33 @@ public:
 private:
     std::string m_id;
     MockTaskView m_view;
+};
+
+class CancelTaskCommand : public Command {
+public:
+    CancelTaskCommand(TaskManager& manager, std::string id) : Command(manager), m_id(id) {}
+    enum Status {
+        Canceled,
+        NotFound
+    };
+
+    void execute() override {
+         {
+            std::lock_guard<std::mutex> lock(m_mutex);
+
+            m_status = m_manager.cancelTask(m_id) ? Canceled : NotFound;
+            m_executed = true;
+            std::cout << "DeleteTaskCommand executed." << std::endl;
+        }
+        m_condition.notify_one();
+    }
+
+    Status getStatus() const {
+        return m_status;
+    }
+private:
+   std::string m_id;
+   Status m_status;
 };
 
 class Controller {
@@ -239,11 +274,12 @@ int main() {
 
 
     CROW_ROUTE(app,"/taches/<string>")
+    .methods("GET"_method)
     ([&taskManager, &controller](std::string id){
         std::shared_ptr<Command> command = std::make_shared<GetTaskCommand>(taskManager, id);
         controller.addCommand(command);
         command->waitToBeExecuted();
-        std::cout << "GetTaskCommand completion notification received" << std::endl;
+        //std::cout << "GetTaskCommand completion notification received" << std::endl;
 
         auto getTaskCommand = std::dynamic_pointer_cast<GetTaskCommand>(command);
         if(getTaskCommand->noTaskFound()) {
@@ -253,6 +289,24 @@ int main() {
         }
         return toCrowJson(getTaskCommand->getTaskView());
      });
+
+    CROW_ROUTE(app, "/taches/<string>")
+    .methods("DELETE"_method)
+    ([&taskManager, &controller](std::string id){
+        std::shared_ptr<Command> command = std::make_shared<CancelTaskCommand>(taskManager, id);
+        controller.addCommand(command);
+        command->waitToBeExecuted();
+        std::cout << "CancelTaskCommand completion notification received" << std::endl;
+        
+        auto cancelTaskCommand = std::dynamic_pointer_cast<CancelTaskCommand>(command);
+        crow::json::wvalue response;
+        if(cancelTaskCommand->getStatus() == CancelTaskCommand::Status::Canceled) {
+            response["message"] = "Task canceled";
+        } else {
+            response["error"] = "Task not found";
+        }
+        return response;
+    });
 
     auto var = app.port(3000).multithreaded().run_async();
 
