@@ -125,8 +125,6 @@ public:
             if(m_taskView.id.empty()){
                 std::cout << "Error: Unable to create the task" << std::endl;
             }
-
-            std::cout << "CreateTaskCommand execution complete" << std::endl;
             m_executed = true;
         }
 
@@ -207,7 +205,6 @@ public:
 
             m_status = m_manager.cancelTask(m_id) ? Canceled : NotFound;
             m_executed = true;
-            std::cout << "DeleteTaskCommand executed." << std::endl;
         }
         m_condition.notify_one();
     }
@@ -226,7 +223,6 @@ public:
         {
             std::lock_guard<std::mutex> lg(m_mutex);
             m_commands.push(command);
-            std::cout << "Command added" << std::endl;
         } 
         m_condition.notify_one();
     }
@@ -235,15 +231,9 @@ public:
         while(true) {
             std::unique_lock lock(m_mutex);
             m_condition.wait(lock, [this] {return !m_commands.empty();});
-            
-           std::cout << "New Command notification received" << std::endl;
-            
-            while(!m_commands.empty()){
-                auto cmd = m_commands.front();
-                cmd->execute();
-                m_commands.pop();
-            }
-
+            auto cmd = m_commands.front();
+            cmd->execute();
+            m_commands.pop();
             lock.unlock();
         }
     }
@@ -291,7 +281,6 @@ int main() {
                 std::make_shared<CreateTaskCommand>(taskManager, description, duration);
             controller.addCommand(command);
             command->waitToBeExecuted();
-            std::cout << "CreateTaskCommand completion notification received" << std::endl;
 
             auto createTaskCommand = std::dynamic_pointer_cast<CreateTaskCommand>(command);
             auto taskView = createTaskCommand->getTaskView();
@@ -323,7 +312,6 @@ int main() {
         std::shared_ptr<Command> command = std::make_shared<GetTaskCommand>(taskManager, id);
         controller.addCommand(command);
         command->waitToBeExecuted();
-        //std::cout << "GetTaskCommand completion notification received" << std::endl;
 
         auto getTaskCommand = std::dynamic_pointer_cast<GetTaskCommand>(command);
         if(getTaskCommand->noTaskFound()) {
@@ -340,7 +328,6 @@ int main() {
         std::shared_ptr<Command> command = std::make_shared<CancelTaskCommand>(taskManager, id);
         controller.addCommand(command);
         command->waitToBeExecuted();
-        std::cout << "CancelTaskCommand completion notification received" << std::endl;
         
         auto cancelTaskCommand = std::dynamic_pointer_cast<CancelTaskCommand>(command);
         crow::json::wvalue response;
