@@ -60,13 +60,20 @@ public:
         return id;
     }
 
-    MockTaskView viewTask(const std::string& id){
+    MockTaskView viewTask(const std::string& id) const {
         auto it = m_tasks.find(id);
         if(it == m_tasks.end()){
             return MockTaskView();
 
         }
         return it->second->getView();
+    }
+
+    std::vector<MockTaskView> viewAllTasks() const {
+        std::vector<MockTaskView> views;
+        std::transform(m_tasks.begin(), m_tasks.end(), std::back_inserter(views), 
+            [](const std::pair<std::string, std::shared_ptr<MockTask>>& pair) { return pair.second->getView();});
+        return views;
     }
 
     bool cancelTask(const std::string& id){
@@ -150,7 +157,6 @@ public:
             std::lock_guard<std::mutex> lock(m_mutex);
             m_view = m_manager.viewTask(m_id);
             m_executed = true;
-            std::cout << "GetTaskCommand executed" << std::endl;
         }
         m_condition.notify_one();
     }
@@ -165,6 +171,26 @@ public:
 private:
     std::string m_id;
     MockTaskView m_view;
+};
+
+class GetAllTasksCommand : public Command {
+public:
+    GetAllTasksCommand(TaskManager& manager) : Command(manager) {}
+
+    void execute() override {
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_taskViews = m_manager.viewAllTasks();
+            m_executed = true;
+        }
+        m_condition.notify_one();
+    }
+
+    std::vector<MockTaskView> getTaskViews() const {
+        return m_taskViews;
+    }
+private:
+    std::vector<MockTaskView> m_taskViews;
 };
 
 class CancelTaskCommand : public Command {
@@ -236,6 +262,14 @@ crow::json::wvalue toCrowJson(MockTaskView taskView) {
     return response;
 }
 
+crow::json::wvalue toCrowJson(const std::vector<MockTaskView>& allTasksViews) {
+    crow::json::wvalue j;
+    for(size_t i = 0; i < allTasksViews.size(); ++i) {
+        j[i] = toCrowJson(allTasksViews[i]);
+    }
+    return j;
+}
+
 int main() {
 
     crow::SimpleApp app;
@@ -243,32 +277,42 @@ int main() {
     Controller controller;
 
     CROW_ROUTE(app, "/taches")
-    .methods("POST"_method)
+    .methods("POST"_method, "GET"_method)
     ([&taskManager, &controller](const crow::request& req ){
-        std::cout << "Request received" << std::endl;
-
-        std::string description;
-        int duration;
-        json reqData =  json::parse(req.body);
-        reqData["description"].get_to(description);
-        reqData["duration"].get_to(duration);
-
-        std::shared_ptr<Command> command = 
-            std::make_shared<CreateTaskCommand>(taskManager, description, duration);
-        controller.addCommand(command);
-        command->waitToBeExecuted();
-        std::cout << "CreateTaskCommand completion notification received" << std::endl;
-
-        auto createTaskCommand = std::dynamic_pointer_cast<CreateTaskCommand>(command);
-        auto taskView = createTaskCommand->getTaskView();
-
         crow::json::wvalue response;
-        if(taskView.id.empty()) {
-            response["error"] = "Couldn't create a new task";
-        } else {
-            response = toCrowJson(taskView);
-        }
+        if(req.method == "POST"_method) {
+            std::string description;
+            int duration;
+            json reqData =  json::parse(req.body);
+            reqData["description"].get_to(description);
+            reqData["duration"].get_to(duration);
 
+            std::shared_ptr<Command> command = 
+                std::make_shared<CreateTaskCommand>(taskManager, description, duration);
+            controller.addCommand(command);
+            command->waitToBeExecuted();
+            std::cout << "CreateTaskCommand completion notification received" << std::endl;
+
+            auto createTaskCommand = std::dynamic_pointer_cast<CreateTaskCommand>(command);
+            auto taskView = createTaskCommand->getTaskView();
+
+            
+            if(taskView.id.empty()) {
+                response["error"] = "Couldn't create a new task";
+            } else {
+                response = toCrowJson(taskView);
+            }
+        }
+        
+        if(req.method == "GET"_method) {
+            std::shared_ptr<Command> command = std::make_shared<GetAllTasksCommand>(taskManager);
+            controller.addCommand(command);
+            command->waitToBeExecuted();
+
+            auto getAllTasksCommand = std::dynamic_pointer_cast<GetAllTasksCommand>(command);
+            response = toCrowJson(getAllTasksCommand->getTaskViews());
+        }
+        
         return response;
     });
 
@@ -309,7 +353,6 @@ int main() {
     });
 
     auto var = app.port(3000).multithreaded().run_async();
-
     controller.run();
     return 0;
 }
