@@ -111,6 +111,18 @@ protected:
     TaskManager& m_manager;
 };
 
+class CommandFactory {
+public:
+    CommandFactory(TaskManager& manager) : m_manager(manager) {};
+    
+    template<typename T, typename... Args>
+    std::shared_ptr<Command> create(Args... args) {
+        return std::make_shared<T>(m_manager, std::forward<Args>(args)...);
+    }
+protected:
+    TaskManager& m_manager;
+};
+
 class CreateTaskCommand : public Command {
 public:
     CreateTaskCommand(TaskManager& manager, const std::string& description, int duration)
@@ -264,11 +276,13 @@ int main() {
 
     crow::SimpleApp app;
     TaskManager taskManager(2);
+    CommandFactory commandFactory(taskManager);
     Controller controller;
+
 
     CROW_ROUTE(app, "/taches")
     .methods("POST"_method, "GET"_method)
-    ([&taskManager, &controller](const crow::request& req ){
+    ([&commandFactory, &controller](const crow::request& req ){
         crow::json::wvalue response;
         if(req.method == "POST"_method) {
             std::string description;
@@ -277,8 +291,7 @@ int main() {
             reqData["description"].get_to(description);
             reqData["duration"].get_to(duration);
 
-            std::shared_ptr<Command> command = 
-                std::make_shared<CreateTaskCommand>(taskManager, description, duration);
+            auto command = commandFactory.create<CreateTaskCommand>(description, duration);
             controller.addCommand(command);
             command->waitToBeExecuted();
 
@@ -294,7 +307,7 @@ int main() {
         }
         
         if(req.method == "GET"_method) {
-            std::shared_ptr<Command> command = std::make_shared<GetAllTasksCommand>(taskManager);
+            auto command = commandFactory.create<GetAllTasksCommand>();
             controller.addCommand(command);
             command->waitToBeExecuted();
 
@@ -308,8 +321,8 @@ int main() {
 
     CROW_ROUTE(app,"/taches/<string>")
     .methods("GET"_method)
-    ([&taskManager, &controller](std::string id){
-        std::shared_ptr<Command> command = std::make_shared<GetTaskCommand>(taskManager, id);
+    ([&commandFactory, &controller](std::string id){
+        auto command = commandFactory.create<GetTaskCommand>(id);
         controller.addCommand(command);
         command->waitToBeExecuted();
 
@@ -324,8 +337,8 @@ int main() {
 
     CROW_ROUTE(app, "/taches/<string>")
     .methods("DELETE"_method)
-    ([&taskManager, &controller](std::string id){
-        std::shared_ptr<Command> command = std::make_shared<CancelTaskCommand>(taskManager, id);
+    ([&commandFactory, &controller](std::string id){
+        auto command = commandFactory.create<CancelTaskCommand>(id);
         controller.addCommand(command);
         command->waitToBeExecuted();
         
