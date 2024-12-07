@@ -37,16 +37,13 @@ public:
                     if(task->isCancelled()){
                         continue;
                     }
-
                     task->compute();
                 }
-                
             });
         }
     };
 
     std::string executeCreateTask(const std::string& description, int duration){
-        
         auto newTask = std::make_shared<MockTask>(description, duration);
         auto id = newTask->getId();
         m_tasks[id] = newTask;
@@ -56,7 +53,6 @@ public:
             m_waitingTasks.push(newTask);
         }
         m_condition.notify_one();
-
         return id;
     }
 
@@ -95,7 +91,7 @@ private:
 
 class Command {
 public:
-    Command(TaskManager& manager) : m_manager(manager) {};
+    Command(TaskManager& manager) : m_manager(manager), m_executed(false) {};
     virtual void execute() = 0;
 
     void waitToBeExecuted() {
